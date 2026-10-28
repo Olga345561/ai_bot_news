@@ -8,6 +8,7 @@ from app.api.schemas import NewsItemCreate
 from app.database import Base, engine, SessionLocal
 from app.models import NewsItem as NewsItemModel, Post
 from app.ai.generator import generate_post
+from app.utils import matches_keywords
 from app import models
 
 app = FastAPI(title="AI_bot_news")
@@ -40,6 +41,20 @@ def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
     db.add(db_news)
     db.commit()
     db.refresh(db_news)
+
+    # 1. Перевіряємо наявність ключових слів
+    keywords = ['Python', 'AI', 'технології']
+
+    if not matches_keywords(
+        db_news.title,
+        db_news.raw_text,
+        keywords,
+    ):
+        return {
+            "messages":"Новина не відповідає ключовим словам",
+            "news_id": db_news.id,
+            "status": "filtered",
+        }
 
     # 2. Генеруємо допис за допомогою ШІ
     try:
