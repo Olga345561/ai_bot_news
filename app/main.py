@@ -3,12 +3,14 @@ from datetime import timezone, datetime
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.encoders import isoformat
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.api.schemas import NewsItemCreate
 from app.database import Base, engine, SessionLocal
 from app.models import NewsItem as NewsItemModel, Post
 from app.ai.generator import generate_post
 from app.utils import matches_keywords
+from app.crud import news_exists
 from app import models
 
 app = FastAPI(title="AI_bot_news")
@@ -28,7 +30,13 @@ def root():
 
 @app.post("/news")
 def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
-    # 1. Зберігаємо новину
+    # Перевіряємо, чи новина вже є в базі
+    if news.url and news_exists(db, news.url):
+        raise HTTPException(
+            status_code=409,
+            detail="Така новина вже є в базі"
+        )
+    # Зберігаємо новину
     db_news = NewsItemModel(
         title=news.title,
         url=news.url,
@@ -39,10 +47,14 @@ def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
     )
 
     db.add(db_news)
-    db.commit()
-    db.refresh(db_news)
+    try:
+        db.commit()
+        db.refresh(db_news)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Така новина вже є в базі")
 
-    # 1. Перевіряємо наявність ключових слів
+    # Перевіряємо наявність ключових слів
     keywords = ['Python', 'AI', 'технології']
 
     if not matches_keywords(
@@ -56,7 +68,7 @@ def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
             "status": "filtered",
         }
 
-    # 2. Генеруємо допис за допомогою ШІ
+    # Генеруємо допис за допомогою ШІ
     try:
         generated_text = generate_post(
             db_news.title,
@@ -65,7 +77,7 @@ def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Не вдалося згенерувати допис: {e}")
 
-    # 3. Зберігаємо згенерований допис
+    # Зберігаємо згенерований допис
     db_post = Post(
         news_id=db_news.id,
         generated_text=generated_text,
@@ -77,7 +89,7 @@ def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_post)
 
-    # 4. Повертаємо результат
+    # Повертаємо результат
     return {
         "message": "Новину збережено, допис згенеровано",
         "news_id": db_news.id,

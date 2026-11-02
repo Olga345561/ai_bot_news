@@ -84,3 +84,17 @@ for number, news in enumerate(news_list[:3], start=1):
     print("Заголовок:", article["title"])
     print("Довжина тексту:", len(article["text"]))
 
+parsed_news = []
+
+for number, news in enumerate(news_list[:3], start=1):
+    article_html = fetch_page(news["url"])
+    article = parse_article(article_html)
+
+    news_data = {
+        **news,
+        "raw_text": article["text"]
+    }
+    parsed_news.append(news_data)
+    print("Кількість оброблених новин", len(parsed_news))
+    print("Заголовок першої новини", parsed_news[0]["title"])
+    print("Довжина повного тексту", len(parsed_news[0]["raw_text"]))

@@ -6,18 +6,7 @@ def parse_news(html:str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
     # Знаходимо текст новини, за яким визначаємо картку
-    news_text= soup.find(
-        string=lambda text: text and "Розробники Python випустили версію 3.15" in text
-    )
-
-    if not news_text:
-        return {"title":"",
-                "text":"",}
-
-    # Знаходимо картку конкретної новини
-    news_card = news_text.find_parent(
-        "div",
-        class_="lenta-item")
+    news_card = soup.find("div", class_="lenta-item")
 
     if not news_card:
         return {"title":"",
@@ -30,6 +19,7 @@ def parse_news(html:str) -> dict:
     text = text_tag.get_text(strip=True) if text_tag else ""
     return {"title":title,
             "text":text,}
+
 #Одержуємо список всіх новин
 def parse_all_news(html:str, source:str) -> list:
     soup = BeautifulSoup(html, "html.parser")
@@ -45,7 +35,7 @@ def parse_all_news(html:str, source:str) -> list:
 
         title = title_tag.get_text(strip=True)if title_tag else ""
         text = text_tag.get_text(strip=True) if text_tag else ""
-        url = url_tag.get("href") if url_tag else ""
+        url = url_tag.get("href") if url_tag else None
         published_at = published_tag.get_text(strip=True) if published_tag else None
         if title and text:
             news_list.append({"title":title,
@@ -53,11 +43,6 @@ def parse_all_news(html:str, source:str) -> list:
                               "url":url,
                               "published_at":published_at,
                               "source":source})
-    #     else:
-    #         print("\nПропущена картка:")
-    #         print(news.prettify())
-    # print("Знайдено новин:", len(news_list))
-
     return news_list
 
 #Завантажуємо HTML сторінки
@@ -71,12 +56,13 @@ def fetch_page(url: str) -> str:
     except requests.exceptions.RequestException:
         raise HTTPException(status_code=502, detail="Помилка під час запиту до сайту")
 
+#Поєднуємо фукції: 1)завантажує HTML; 2)витягує з нього дані
 def fetch_and_parse_news(url:str) -> dict:
     html = fetch_page(url)
     news = parse_news(html)
     return news
 
-#Витягує заголовок і повний текст статті
+#Витягуємо заголовок і повний текст статті
 def parse_article(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
@@ -103,3 +89,4 @@ def parse_article(html: str) -> dict:
         "title": title,
         "text": full_text
     }
+

@@ -5,7 +5,7 @@ class NewsItem(Base):
     __tablename__ = 'news_item'
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
-    url = Column(String, nullable=True)
+    url = Column(String, nullable=True, unique=True)
     summary = Column(String, nullable=False)
     source = Column(String, nullable=False)
     published_at = Column(String, nullable=False)
