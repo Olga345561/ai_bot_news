@@ -16,3 +16,6 @@ __pycache__/
 
 # Логи
 *.log
+
+*.session
+*.session-journal
