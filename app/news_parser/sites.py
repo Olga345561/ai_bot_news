@@ -1,6 +1,9 @@
 import requests
 from fastapi import HTTPException
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+from sqlalchemy.orm import Session
+from app.crud import create_many_news
 
 def parse_news(html:str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
@@ -21,7 +24,7 @@ def parse_news(html:str) -> dict:
             "text":text,}
 
 #Одержуємо список всіх новин
-def parse_all_news(html:str, source:str) -> list:
+def parse_all_news(html:str, source:str, base_url:str) -> list:
     soup = BeautifulSoup(html, "html.parser")
     news_card = soup.find_all("div", class_="lenta-item")
 
@@ -35,7 +38,7 @@ def parse_all_news(html:str, source:str) -> list:
 
         title = title_tag.get_text(strip=True)if title_tag else ""
         text = text_tag.get_text(strip=True) if text_tag else ""
-        url = url_tag.get("href") if url_tag else None
+        url = urljoin(base_url, url_tag.get("href")) if url_tag else None
         published_at = published_tag.get_text(strip=True) if published_tag else None
         if title and text:
             news_list.append({"title":title,
@@ -90,3 +93,40 @@ def parse_article(html: str) -> dict:
         "text": full_text
     }
 
+
+def fetch_and_parse_all_news(source: str, base_url: str) -> list:
+    # 1. Завантажуємо сторінку зі списком новин
+    html = fetch_page(base_url)
+
+    # 2. Отримуємо список новин
+    news_list = parse_all_news(
+        html,
+        source=source,
+        base_url=base_url
+    )
+
+    # 3. Створюємо список для повністю оброблених новин
+    parsed_news = []
+
+    # 4. Проходимося по кожній новині
+    for news in news_list:
+        if not news["url"]:
+            continue
+
+        article_html = fetch_page(news["url"])
+        article = parse_article(article_html)
+
+        news_data = {
+            **news,
+            "raw_text": article["text"]
+        }
+
+        parsed_news.append(news_data)
+
+    return parsed_news
+
+# Отримує новини з сайту та зберігає їх в базі даних
+def fetch_and_save_news(db:Session, source:str, base_url:str) -> dict:
+    parsed_news = fetch_and_parse_all_news(source, base_url)
+    saved_result = create_many_news(db, parsed_news)
+    return saved_result
