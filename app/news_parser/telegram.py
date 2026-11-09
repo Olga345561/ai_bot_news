@@ -10,9 +10,11 @@ load_dotenv()
 API_ID = int(os.getenv("TELEGRAM_API_ID"))
 API_HASH = os.getenv("TELEGRAM_API_HASH")
 
-client = TelegramClient("telegram_qr_session", API_ID, API_HASH)
 
-async def main():
+#Підключається до Telegram, викликає парсер і зберігає новини
+async def main(channel:str, source:str, limit:int=30):
+    client = TelegramClient("telegram_qr_session", API_ID, API_HASH)
+
     await client.connect()
 
     try:
@@ -20,7 +22,7 @@ async def main():
             print("Авторизація успішна!")
 
             news_list = await parse_telegram_messages(
-                client, "ua_1techno", 30
+                client, channel, source, limit
             )
 
             print(f"Отримано новин: {len(news_list)}")
@@ -30,17 +32,24 @@ async def main():
             try:
                 result = create_many_news(db, news_list)
                 print("Результат збереження:", result)
+                return result
             finally:
                 db.close()
 
         else:
-            print("Потрібна авторизація!")
+            raise RuntimeError("Потрібна авторизація Telegram!")
 
     finally:
         await client.disconnect()
+#Отримуємо повідомлення з Telegram і перетворюємо їх на список словників
+async def parse_telegram_messages(
+    client: TelegramClient,
+    channel: str,
+    source: str,
+    limit: int = 30):
 
-async def parse_telegram_messages(client, channel, limit=30):
     news_list = []
+
     async for message in client.iter_messages(channel, limit=limit):
         if not message.message:
             continue
@@ -54,9 +63,9 @@ async def parse_telegram_messages(client, channel, limit=30):
 
         news_data = {
             "title": title,
-            "url": f"https://t.me/ua_1techno/{message.id}",
+            "url": f"https://t.me/{channel}/{message.id}",
             "summary": summary or title,
-            "source": "Перший Технологічний • Нейромережі • Стартапи",
+            "source": source,
             "published_at": message.date.isoformat(),
             "raw_text": raw_text
         }

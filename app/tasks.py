@@ -1,6 +1,8 @@
 from celery_worker import celery_app
 from app.database import SessionLocal
 from app.news_parser.sites import fetch_and_save_news
+import asyncio
+from app.news_parser.telegram import main as parse_telegram
 
 
 @celery_app.task
@@ -21,3 +23,14 @@ def parse_site_news(source: str, base_url: str):
 
     finally:
         db.close()
+
+@celery_app.task
+def parse_telegram_news(channel: str, source: str, limit: int = 30):
+    result = asyncio.run(
+        parse_telegram(
+            channel=channel,
+            source=source,
+            limit=limit
+        )
+    )
+    return result
