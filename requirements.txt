@@ -1,0 +1,15 @@
+
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+requests
+beautifulsoup4
+telethon
+alembic
+celery[redis]
+redis
+openai
+python-dotenv
+pytest
+pytest-asyncio

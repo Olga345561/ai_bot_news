@@ -1,21 +1,24 @@
-from datetime import timezone, datetime
-
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.encoders import isoformat
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.api.schemas import NewsItemCreate
 from app.database import Base, engine, SessionLocal
-from app.models import NewsItem as NewsItemModel, Post
+from app.models import NewsItem as NewsItemModel, Post, Keyword
 from app.ai.generator import generate_post
 from app.utils import matches_keywords
 from app.crud import news_exists
-from app import models
+from app.api.endpoints import router
+from app.logging_config import configure_logging
+
+configure_logging()
+
 
 app = FastAPI(title="AI_bot_news")
 
 Base.metadata.create_all(bind=engine)
+
+app.include_router(router, prefix="/api")
 
 def get_db():
     db = SessionLocal()
@@ -54,13 +57,15 @@ def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=409, detail="Така новина вже є в базі")
 
-    # Перевіряємо наявність ключових слів
-    keywords = ['Python', 'AI', 'технології']
+    # Отримуємо ключові слова з бази даних
+    keywords = db.query(Keyword).all()
+    keyword_words = [keyword.word for keyword in keywords]
 
+    # Перевіряємо наявність ключових слів
     if not matches_keywords(
-        db_news.title,
-        db_news.raw_text,
-        keywords,
+            db_news.title,
+            db_news.raw_text,
+            keyword_words,
     ):
         return {
             "messages":"Новина не відповідає ключовим словам",
@@ -81,7 +86,7 @@ def create_news(news: NewsItemCreate, db: Session = Depends(get_db)):
     db_post = Post(
         news_id=db_news.id,
         generated_text=generated_text,
-        published_at=datetime.now(timezone.utc).isoformat(),
+        # published_at=datetime.now(timezone.utc).isoformat(),
         status="generated",
     )
 

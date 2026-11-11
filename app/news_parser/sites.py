@@ -1,34 +1,50 @@
+
+import logging
 import requests
+
 from fastapi import HTTPException
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from sqlalchemy.orm import Session
 from app.crud import create_many_news
 
-def parse_news(html:str) -> dict:
+
+logger = logging.getLogger(__name__)
+
+
+def parse_news(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
     # Знаходимо текст новини, за яким визначаємо картку
     news_card = soup.find("div", class_="lenta-item")
 
     if not news_card:
-        return {"title":"",
-                "text":"",}
+        return {
+            "title": "",
+            "text": ""
+        }
 
     # Витягуємо заголовок і текст
     title_tag = news_card.find("h2")
     text_tag = news_card.find("p", class_=None)
-    title = title_tag.get_text(strip=True)if title_tag else ""
-    text = text_tag.get_text(strip=True) if text_tag else ""
-    return {"title":title,
-            "text":text,}
 
-#Одержуємо список всіх новин
-def parse_all_news(html:str, source:str, base_url:str) -> list:
+    title = title_tag.get_text(strip=True) if title_tag else ""
+    text = text_tag.get_text(strip=True) if text_tag else ""
+
+    return {
+        "title": title,
+        "text": text
+    }
+
+
+# Одержуємо список всіх новин
+def parse_all_news(html: str, source: str, base_url: str) -> list:
     soup = BeautifulSoup(html, "html.parser")
     news_card = soup.find_all("div", class_="lenta-item")
 
     news_list = []
+
+    logger.info("Знайдено карток новин: %s", len(news_card))
 
     for news in news_card:
         title_tag = news.find("h2")
@@ -36,43 +52,68 @@ def parse_all_news(html:str, source:str, base_url:str) -> list:
         url_tag = title_tag.find_parent("a") if title_tag else None
         published_tag = news.find("span", class_="meta-datetime")
 
-        title = title_tag.get_text(strip=True)if title_tag else ""
+        title = title_tag.get_text(strip=True) if title_tag else ""
         text = text_tag.get_text(strip=True) if text_tag else ""
         url = urljoin(base_url, url_tag.get("href")) if url_tag else None
         published_at = published_tag.get_text(strip=True) if published_tag else None
+
         if title and text:
-            news_list.append({"title":title,
-                              "summary":text,
-                              "url":url,
-                              "published_at":published_at,
-                              "source":source})
+            news_list.append({
+                "title": title,
+                "summary": text,
+                "url": url,
+                "published_at": published_at,
+                "source": source
+            })
+
+    logger.info("Успішно оброблено новин: %s", len(news_list))
+
     return news_list
 
-#Завантажуємо HTML сторінки
+
+# Завантажуємо HTML сторінки
 def fetch_page(url: str) -> str:
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        return response.text
-    except requests.exceptions.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"Не вдалося отримати сторінку: {e}")
-    except requests.exceptions.RequestException:
-        raise HTTPException(status_code=502, detail="Помилка під час запиту до сайту")
 
-#Поєднуємо фукції: 1)завантажує HTML; 2)витягує з нього дані
-def fetch_and_parse_news(url:str) -> dict:
+        logger.info("Сторінку успішно завантажено: %s", url)
+
+        return response.text
+
+    except requests.exceptions.HTTPError as e:
+        logger.exception("HTTP-помилка під час завантаження: %s", url)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Не вдалося отримати сторінку: {e}"
+        )
+
+    except requests.exceptions.RequestException:
+        logger.exception("Помилка запиту до сайту: %s", url)
+        raise HTTPException(
+            status_code=502,
+            detail="Помилка під час запиту до сайту"
+        )
+
+
+# Поєднуємо функції: 1) завантажує HTML; 2) витягує з нього дані
+def fetch_and_parse_news(url: str) -> dict:
     html = fetch_page(url)
     news = parse_news(html)
     return news
 
-#Витягуємо заголовок і повний текст статті
+
+# Витягуємо заголовок і повний текст статті
 def parse_article(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
     content = soup.find("div", class_="content-inner")
 
     if not content:
-        return {"title": "", "text": ""}
+        return {
+            "title": "",
+            "text": ""
+        }
 
     title_tag = soup.find("h1")
     title = title_tag.get_text(strip=True) if title_tag else ""
@@ -105,6 +146,8 @@ def fetch_and_parse_all_news(source: str, base_url: str) -> list:
         base_url=base_url
     )
 
+    logger.info("Починаємо обробку новин із джерела: %s", source)
+
     # 3. Створюємо список для повністю оброблених новин
     parsed_news = []
 
@@ -123,10 +166,27 @@ def fetch_and_parse_all_news(source: str, base_url: str) -> list:
 
         parsed_news.append(news_data)
 
+    logger.info(
+        "Обробку новин завершено. Джерело: %s, отримано: %s",
+        source,
+        len(parsed_news)
+    )
+
     return parsed_news
 
+
 # Отримує новини з сайту та зберігає їх в базі даних
-def fetch_and_save_news(db:Session, source:str, base_url:str) -> dict:
+def fetch_and_save_news(db: Session, source: str, base_url: str) -> dict:
+    logger.info("Початок отримання новин із джерела: %s", source)
+
     parsed_news = fetch_and_parse_all_news(source, base_url)
     saved_result = create_many_news(db, parsed_news)
+
+    logger.info(
+        "Збереження новин завершено. Джерело: %s, збережено: %s, пропущено: %s",
+        source,
+        saved_result.get("saved", 0),
+        saved_result.get("skipped", 0)
+    )
+
     return saved_result

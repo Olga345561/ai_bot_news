@@ -1,0 +1,70 @@
+
+services:
+  api:
+    build: .
+    container_name: ai-bot-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      REDIS_BROKER_URL: redis://redis:6379/0
+      REDIS_BACKEND_URL: redis://redis:6379/1
+    volumes:
+      - ./ai_bot_news.db:/app/ai_bot_news.db
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    container_name: ai-bot-worker
+    command: celery -A celery_worker:celery_app worker --pool=solo --loglevel=info
+    env_file:
+      - .env
+    environment:
+      REDIS_BROKER_URL: redis://redis:6379/0
+      REDIS_BACKEND_URL: redis://redis:6379/1
+    volumes:
+      - ./ai_bot_news.db:/app/ai_bot_news.db
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  beat:
+    build: .
+    container_name: ai-bot-beat
+    command: celery -A celery_worker:celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      REDIS_BROKER_URL: redis://redis:6379/0
+      REDIS_BACKEND_URL: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-bot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:

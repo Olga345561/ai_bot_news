@@ -1,21 +1,39 @@
-import os
-from dotenv import load_dotenv
-import requests
 
-load_dotenv()
+import logging
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+from app.telegram.bot import get_telegram_client
 
-def publish_post(text: str):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+logger = logging.getLogger(__name__)
 
-    payload = {
-        "chat_id": "@ai_news_today_ua",
-        "text": text
-    }
 
-    response = requests.post(url, json=payload, timeout=(5, 30))
+async def publish_post(text: str):
+    client = get_telegram_client()
 
-    response.raise_for_status()
+    try:
+        await client.connect()
 
-    return response.json()
+        if not await client.is_user_authorized():
+            raise RuntimeError("Потрібна авторизація Telegram!")
+
+        message = await client.send_message(
+            "@ai_news_today_ua",
+            text
+        )
+
+        logger.info(
+            "Пост успішно опубліковано: message_id=%s",
+            message.id
+        )
+
+        return {
+            "ok": True,
+            "message_id": message.id
+        }
+
+    except Exception:
+        logger.exception("Помилка під час публікації в Telegram")
+        raise
+
+    finally:
+        if client.is_connected():
+            await client.disconnect()

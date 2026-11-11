@@ -1,75 +1,194 @@
-from app.database import SessionLocal
-from app.crud import news_exists, create_many_news
-from app.models import Post, NewsItem
 
-db = SessionLocal()
+import pytest
+
+from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base
+from app.models import NewsItem
+from app.crud import (
+    news_exists,
+    news_exists_by_title,
+    create_news,
+    create_many_news,
+)
 
 
-print("Перевірка None:", news_exists(db, None))
-print("Перевірка наявного URL:", news_exists(db, "https://example.com/news"))
-print("Перевірка нового URL:", news_exists(db, "https://example.com/new-news"))
-import logging
+@pytest.fixture
+def db():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
 
-logging.basicConfig(level=logging.INFO)
+    TestingSessionLocal = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+    )
 
-post = db.query(Post).filter(Post.news_id == 16).first()
-print(post)
+    Base.metadata.create_all(bind=engine)
 
-news_list = [
-    {
-        "title": "В Україні запускають нову платформу для IT-навчання",
-        "url": "https://example.com/news/it-education-platform-2026",
-        "summary": "Нова онлайн-платформа пропонуватиме курси з програмування та веброзробки.",
-        "source": "Example",
-        "published_at": "2026-11-07",
-        "raw_text": "В Україні запускають нову онлайн-платформу для IT-навчання. Користувачі зможуть вивчати Python, JavaScript та основи веброзробки. Платформа орієнтована на початківців."
-    },
-    {
-        "title": "Перевірка масового збереження 2026-11-06",
-        "url": "https://example.com/bulk-test-2026-11-06",
-        "summary": "Опис другої новини",
-        "source": "Example",
-        "published_at": "2026-11-03",
-        "raw_text": "Повний текст другої новини"
-    },
-    {
-        "title": "Перша нова новина bulk test 2026-11-06",
-        "url": "https://example.com/bulk-test-first-2026-11-06",
-        "summary": "Опис першої новини",
-        "source": "Example",
-        "published_at": "2026-11-03",
-        "raw_text": "Повний текст першої новини"
-    },
-    {
-        "title": None,
-        "url": "https://example.com/error-test-2026",
-        "summary": "Тест помилки",
-        "source": "Example",
-        "published_at": "2026-11-06",
-        "raw_text": "Тест перевірки обробки помилок"
+    session = TestingSessionLocal()
+
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+@pytest.fixture
+def news_data():
+    return {
+        "title": "Тестова новина",
+        "url": "https://example.com/news-1",
+        "summary": "Короткий опис",
+        "source": "Test source",
+        "published_at": "2026-11-11",
+        "raw_text": "Повний текст тестової новини",
     }
-]
 
-try:
-    test_url = "https://example.com/news"
 
-    exists = news_exists(db, test_url)
+# news_exists
 
-    if exists:
-        print("Така новина вже є в базі")
-    else:
-        print("Такої новини ще немає в базі")
+def test_news_exists_true(db, news_data):
+    db.add(NewsItem(**news_data))
+    db.commit()
+
+    assert news_exists(db, news_data["url"]) is True
+
+
+def test_news_exists_false(db):
+    assert news_exists(db, "https://example.com/unknown") is False
+
+
+def test_news_exists_empty_url(db):
+    assert news_exists(db, "") is False
+
+
+# news_exists_by_title
+
+def test_news_exists_by_title_true(db, news_data):
+    db.add(NewsItem(**news_data))
+    db.commit()
+
+    assert news_exists_by_title(db, news_data["title"]) is True
+
+
+def test_news_exists_by_title_false(db):
+    assert news_exists_by_title(db, "Невідома новина") is False
+
+
+def test_news_exists_by_title_empty(db):
+    assert news_exists_by_title(db, "") is False
+
+
+# create_news
+
+def test_create_news(db, news_data):
+    news = create_news(db, news_data)
+
+    assert isinstance(news, NewsItem)
+    assert news.title == news_data["title"]
+    assert news.url == news_data["url"]
+    assert news in db.new
+
+
+# create_many_news
+
+def test_create_many_news_saves_news(db):
+    news_list = [
+        {
+            "title": "Новина 1",
+            "url": "https://example.com/1",
+            "summary": "Опис 1",
+            "source": "Test",
+            "published_at": "2026-11-11",
+            "raw_text": "Текст 1",
+        },
+        {
+            "title": "Новина 2",
+            "url": "https://example.com/2",
+            "summary": "Опис 2",
+            "source": "Test",
+            "published_at": "2026-11-11",
+            "raw_text": "Текст 2",
+        },
+    ]
 
     result = create_many_news(db, news_list)
-    print("Результат збереження:", result)
 
-    test_url = news_list[0]["url"]
-    saved_news = db.query(NewsItem).filter(NewsItem.url == test_url).first()
-    if saved_news:
-        print(saved_news.title)
-    else:
-        print("Новину не знайдено")
+    assert result == {"saved": 2, "skipped": 0}
+    assert db.query(NewsItem).count() == 2
 
-finally:
-    db.close()
 
+def test_create_many_news_skips_duplicate_url(db, news_data):
+    db.add(NewsItem(**news_data))
+    db.commit()
+
+    result = create_many_news(db, [news_data])
+
+    assert result == {"saved": 0, "skipped": 1}
+    assert db.query(NewsItem).count() == 1
+
+
+def test_create_many_news_skips_duplicate_title(db, news_data):
+    db.add(NewsItem(**news_data))
+    db.commit()
+
+    duplicate = {
+        **news_data,
+        "url": "https://example.com/another-url",
+    }
+
+    result = create_many_news(db, [duplicate])
+
+    assert result == {"saved": 0, "skipped": 1}
+    assert db.query(NewsItem).count() == 1
+
+
+def test_create_many_news_skips_empty_title(db, news_data):
+    invalid_news = {
+        **news_data,
+        "title": "",
+    }
+
+    result = create_many_news(db, [invalid_news])
+
+    assert result == {"saved": 0, "skipped": 1}
+
+
+def test_create_many_news_skips_empty_raw_text(db, news_data):
+    invalid_news = {
+        **news_data,
+        "raw_text": "",
+    }
+
+    result = create_many_news(db, [invalid_news])
+
+    assert result == {"saved": 0, "skipped": 1}
+
+
+def test_create_many_news_empty_list(db):
+    result = create_many_news(db, [])
+
+    assert result == {"saved": 0, "skipped": 0}
+
+
+def test_create_many_news_rollbacks_on_commit_error(
+    db, news_data, monkeypatch
+):
+    def mock_commit():
+        raise SQLAlchemyError("Помилка тестового commit")
+
+    monkeypatch.setattr(db, "commit", mock_commit)
+
+    result = create_many_news(db, [news_data])
+
+    assert result == {"saved": 0, "skipped": 1}
+    assert db.query(NewsItem).count() == 0

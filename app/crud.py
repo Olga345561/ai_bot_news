@@ -1,23 +1,33 @@
-from sqlalchemy.orm import Session
-from app.models import NewsItem
+
 import logging
+
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+
+from app.models import NewsItem
+from app.ai.translator import translate_news
+
 
 logger = logging.getLogger(__name__)
 
-def news_exists(db: Session, url:str) -> bool:
+
+def news_exists(db: Session, url: str) -> bool:
     if not url:
         return False
-    news= db.query(NewsItem).filter(NewsItem.url == url).first()
+
+    news = db.query(NewsItem).filter(NewsItem.url == url).first()
     return news is not None
 
-def news_exists_by_title(db: Session, title:str) -> bool:
+
+def news_exists_by_title(db: Session, title: str) -> bool:
     if not title:
         return False
+
     news = db.query(NewsItem).filter(NewsItem.title == title).first()
     return news is not None
 
-#створює одну новину та зберігає її в базу
+
+# Створює одну новину та додає її до сесії бази даних
 def create_news(db: Session, news_data: dict):
     db_news = NewsItem(
         title=news_data["title"],
@@ -31,29 +41,56 @@ def create_news(db: Session, news_data: dict):
     db.add(db_news)
     return db_news
 
-#проходить циклом по списку новин і викликає create_news() для кожної
+
+# Перевіряє новини, перекладає їх та зберігає в базу
 def create_many_news(db: Session, news_list: list) -> dict:
     added_count = 0
     skipped_count = 0
 
     try:
         for news_data in news_list:
-            if not news_data["title"] or not news_data["raw_text"]:
+
+            # Перевіряємо наявність обов'язкових даних
+            if not news_data.get("title") or not news_data.get("raw_text"):
                 skipped_count += 1
                 continue
 
-            if news_exists(db, news_data["url"]) or news_exists_by_title(db, news_data["title"]):
+            # Перевіряємо дублікати до перекладу
+            if (
+                news_exists(db, news_data.get("url"))
+                or news_exists_by_title(db, news_data["title"])
+            ):
                 skipped_count += 1
                 continue
 
+            # Перекладаємо новину українською
+            translated = translate_news(
+                title=news_data["title"],
+                summary=news_data.get("summary") or "",
+                raw_text=news_data["raw_text"]
+            )
+
+            # Замінюємо оригінальні тексти перекладеними
+            news_data = {
+                **news_data,
+                **translated
+            }
+
+            # Додаємо перекладену новину до бази
             create_news(db, news_data)
             added_count += 1
 
         db.commit()
 
-    except SQLAlchemyError:
+        logger.info(
+            "Збереження новин завершено. Додано: %s, пропущено: %s",
+            added_count,
+            skipped_count
+        )
+
+    except Exception:
         db.rollback()
-        logger.exception("Не вдалося зберегти список новин")
+        logger.exception("Не вдалося перекласти або зберегти список новин")
         skipped_count += added_count
         added_count = 0
 

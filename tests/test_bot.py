@@ -1,16 +1,17 @@
-import os
-import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+from unittest.mock import patch
 
-token = os.getenv("TELEGRAM_BOT_TOKEN")
+from app.telegram import bot
 
-response = requests.get(
-    f"https://api.telegram.org/bot{token}/getMe",
-    timeout=(5, 30)
-)
 
-print("HTTP:", response.status_code)
-print("Відповідь:", response.json().get("ok"))
-print("Опис:", response.json().get("description"))
+@patch("app.telegram.bot.TelegramClient")
+def test_get_telegram_client_creates_client(mock_client):
+    result = bot.get_telegram_client()
+
+    mock_client.assert_called_once_with(
+        bot.SESSION_PATH,
+        bot.API_ID,
+        bot.API_HASH,
+    )
+
+    assert result == mock_client.return_value

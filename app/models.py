@@ -14,9 +14,9 @@ class NewsItem(Base):
 class Post(Base):
     __tablename__ = 'post'
     id = Column(Integer, primary_key=True, index=True)
-    news_id = Column(Integer, ForeignKey('news_item.id'))
+    news_id = Column(Integer, ForeignKey('news_item.id'), nullable=False, unique=True)
     generated_text = Column(String, nullable=False)
-    published_at = Column(String, nullable=False)
+    published_at = Column(String, nullable=True)
     status = Column(String, nullable=False)
 
 class Source(Base):
@@ -25,11 +25,11 @@ class Source(Base):
     type = Column(String, nullable=False)
     name = Column(String, nullable=True)
     url = Column(String, nullable=True)
-    enabled = Column(Boolean, nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True)
 
 class Keyword(Base):
     __tablename__ = 'keyword'
     id = Column(Integer, primary_key=True, index=True)
-    word = Column(String, nullable=False)
+    word = Column(String, nullable=False, unique=True)
 
 
